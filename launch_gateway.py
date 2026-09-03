@@ -58,11 +58,23 @@ def _install_dependencies() -> None:
             "pip",
             "install",
             "-q",
+            "--upgrade",
+            "--force-reinstall",
+            "--no-cache-dir",
+            "pillow",
+        ]
+    )
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "-q",
             "-U",
             "transformers>=4.57.0",
             "bitsandbytes>=0.46.1",
             "accelerate",
-            "pillow",
             "qwen-vl-utils",
         ]
     )
