@@ -9,7 +9,8 @@ or application secrets.
 Run this cell in a fresh Google Colab runtime with a T4 GPU:
 
 ```python
-!wget -q https://raw.githubusercontent.com/HarshadHindlekar/hapus-more-colab-gateway/main/launch_gateway.py -O /content/launch_gateway.py && exec(open("/content/launch_gateway.py", encoding="utf-8").read(), globals())
+!wget -q https://raw.githubusercontent.com/HarshadHindlekar/hapus-more-colab-gateway/main/launch_gateway.py -O /content/launch_gateway.py
+exec(open("/content/launch_gateway.py", encoding="utf-8").read(), globals())
 ```
 
 The launcher installs dependencies, mounts Google Drive, loads the model from
