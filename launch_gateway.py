@@ -17,6 +17,7 @@ needed.
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import os
 import re
@@ -50,7 +51,27 @@ def _download(url: str, destination: Path) -> None:
         destination.write_bytes(response.read())
 
 
-def _install_dependencies() -> None:
+def _pillow_is_healthy() -> bool:
+    for module_name in list(sys.modules):
+        if module_name == "PIL" or module_name.startswith("PIL."):
+            del sys.modules[module_name]
+    importlib.invalidate_caches()
+
+    try:
+        from PIL import Image, ImageFont, ImageText
+
+        print("Pillow check passed:", Image.__version__)
+        return True
+    except Exception as error:
+        print("Pillow check failed:", error)
+        return False
+
+
+def _ensure_pillow() -> None:
+    if _pillow_is_healthy():
+        return
+
+    print("Repairing Pillow installation")
     _run(
         [
             sys.executable,
@@ -64,6 +85,13 @@ def _install_dependencies() -> None:
             "pillow",
         ]
     )
+    if not _pillow_is_healthy():
+        raise RuntimeError(
+            "Pillow is still inconsistent after repair. Restart the Colab runtime and run the launcher again."
+        )
+
+
+def _install_dependencies() -> None:
     _run(
         [
             sys.executable,
@@ -78,6 +106,7 @@ def _install_dependencies() -> None:
             "qwen-vl-utils",
         ]
     )
+    _ensure_pillow()
 
 
 def _mount_drive() -> None:
@@ -121,6 +150,8 @@ def _load_model(hapus_module):
             "then reconnect and run this cell again."
         )
 
+    model_source = hapus_module.find_drive_model_dir()
+    print("Model files found:", model_source)
     model_path = hapus_module.copy_model_to_runtime()
     processor, model = hapus_module.load_model(model_path)
     print("Model loaded successfully:", model_path)
