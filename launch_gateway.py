@@ -38,6 +38,8 @@ AGENT_PATH = Path("/content/hapus_more_agent.py")
 CLOUDFLARED_PATH = Path("/content/cloudflared")
 CLOUDFLARED_LOG = Path("/content/hapus-tunnel.log")
 GATEWAY_PORT = 8000
+PUBLIC_HEALTH_ATTEMPTS = 30
+PUBLIC_HEALTH_RETRY_SECONDS = 2
 GATEWAY_SOURCE_MARKERS = (
     "class HapusGateway",
     "PROCESSOR_ID",
@@ -226,7 +228,7 @@ def _start_cloudflare_tunnel() -> str:
 def _check_public_health(tunnel_url: str) -> None:
     health_url = f"{tunnel_url}/health"
     last_error = None
-    for _ in range(5):
+    for attempt in range(1, PUBLIC_HEALTH_ATTEMPTS + 1):
         try:
             with urlopen(health_url, timeout=15) as response:
                 if response.status == 200:
@@ -234,8 +236,17 @@ def _check_public_health(tunnel_url: str) -> None:
                     return
         except Exception as error:  # tunnel startup can take a few seconds
             last_error = error
-        time.sleep(2)
-    raise RuntimeError(f"Public health check failed: {last_error}")
+        if attempt < PUBLIC_HEALTH_ATTEMPTS:
+            if attempt == 1 or attempt % 5 == 0:
+                print(
+                    f"Waiting for the public tunnel ({attempt}/{PUBLIC_HEALTH_ATTEMPTS})..."
+                )
+            time.sleep(PUBLIC_HEALTH_RETRY_SECONDS)
+    log_text = CLOUDFLARED_LOG.read_text(encoding="utf-8", errors="ignore")
+    raise RuntimeError(
+        f"Public health check failed after {PUBLIC_HEALTH_ATTEMPTS} attempts: {last_error}. "
+        f"Cloudflared log tail:\n{log_text[-2000:]}"
+    )
 
 
 def main() -> None:
