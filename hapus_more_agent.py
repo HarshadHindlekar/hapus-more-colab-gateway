@@ -26,6 +26,7 @@ from urllib.request import Request, urlopen
 # drive.mount('/content/drive')
 
 MODEL_ID = os.environ.get("HAPUS_MODEL_ID", "Qwen/Qwen3-VL-4B-Instruct")
+PROCESSOR_ID = os.environ.get("HAPUS_PROCESSOR_ID", MODEL_ID)
 DRIVE_ROOT = Path(os.environ.get("HAPUS_DRIVE_ROOT", "/content/drive/MyDrive/Hapus More AI"))
 DRIVE_MODELS_DIR = DRIVE_ROOT / "models"
 RUNTIME_MODEL_DIR = Path("/content/hapus-model")
@@ -91,27 +92,56 @@ User request: {question}"""
 
 
 def find_drive_model_dir() -> Path:
-    """Find a model directory even when a shared Drive shortcut has a custom name."""
+    """Find a complete model directory under Drive.
+
+    Processor files are not required here because a Drive backup may contain
+    only model configuration and weight shards. ``load_model`` retrieves the
+    small processor files from Hugging Face when they are absent.
+    """
     candidates = []
+    incomplete = []
     if DRIVE_MODELS_DIR.exists():
-        for config in DRIVE_MODELS_DIR.rglob("config.json"):
-            candidate = config.parent
-            if (candidate / "model.safetensors.index.json").exists() and list(candidate.glob("*.safetensors")):
+        for index_file in DRIVE_MODELS_DIR.rglob("model.safetensors.index.json"):
+            candidate = index_file.parent
+            config_file = candidate / "config.json"
+            if not config_file.exists():
+                incomplete.append(f"{candidate} (missing config.json)")
+                continue
+            try:
+                index = json.loads(index_file.read_text(encoding="utf-8"))
+                weight_files = sorted(set(index.get("weight_map", {}).values()))
+            except (OSError, json.JSONDecodeError) as error:
+                incomplete.append(f"{candidate} (invalid model.safetensors.index.json: {error})")
+                continue
+            missing = [name for name in weight_files if not (candidate / name).is_file()]
+            if missing:
+                incomplete.append(f"{candidate} (missing weight files: {', '.join(missing)})")
+                continue
+            if weight_files:
                 candidates.append(candidate)
     unique_candidates = list(dict.fromkeys(candidates))
     if not unique_candidates:
+        details = f" Incomplete candidates: {'; '.join(incomplete)}." if incomplete else ""
         raise FileNotFoundError(
-            f"No model folder found under {DRIVE_MODELS_DIR}. Add the sister-owned Drive shortcut and mount Drive first."
+            f"No complete model folder found under {DRIVE_MODELS_DIR}. "
+            "Add both safetensors shards plus config.json and model.safetensors.index.json, "
+            f"then mount Drive again.{details}"
         )
     return unique_candidates[0]
 
 
 def copy_model_to_runtime() -> Path:
     """Copy model weights from persistent Drive to faster ephemeral storage."""
+    source_dir = find_drive_model_dir()
     RUNTIME_MODEL_DIR.parent.mkdir(parents=True, exist_ok=True)
-    if RUNTIME_MODEL_DIR.exists():
-        return RUNTIME_MODEL_DIR
-    shutil.copytree(find_drive_model_dir(), RUNTIME_MODEL_DIR)
+    required_files = [source_dir / "config.json", source_dir / "model.safetensors.index.json"]
+    index = json.loads((source_dir / "model.safetensors.index.json").read_text(encoding="utf-8"))
+    required_files.extend(source_dir / name for name in sorted(set(index["weight_map"].values())))
+    if not RUNTIME_MODEL_DIR.exists() or any(
+        not (RUNTIME_MODEL_DIR / file.relative_to(source_dir)).is_file()
+        for file in required_files
+    ):
+        shutil.copytree(source_dir, RUNTIME_MODEL_DIR, dirs_exist_ok=True)
     return RUNTIME_MODEL_DIR
 
 
@@ -126,7 +156,14 @@ def load_model(model_path: Path):
         bnb_4bit_use_double_quant=True,
     )
 
-    processor = AutoProcessor.from_pretrained(model_path)
+    local_processor_config = model_path / "preprocessor_config.json"
+    processor_source = model_path if local_processor_config.exists() else PROCESSOR_ID
+    if processor_source == PROCESSOR_ID:
+        print(
+            f"Processor metadata is not present in {model_path}; "
+            f"loading it from {PROCESSOR_ID}"
+        )
+    processor = AutoProcessor.from_pretrained(processor_source)
     model = AutoModelForMultimodalLM.from_pretrained(
         model_path,
         device_map="auto",

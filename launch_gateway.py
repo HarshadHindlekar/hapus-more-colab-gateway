@@ -38,6 +38,11 @@ AGENT_PATH = Path("/content/hapus_more_agent.py")
 CLOUDFLARED_PATH = Path("/content/cloudflared")
 CLOUDFLARED_LOG = Path("/content/hapus-tunnel.log")
 GATEWAY_PORT = 8000
+GATEWAY_SOURCE_MARKERS = (
+    "class HapusGateway",
+    "PROCESSOR_ID",
+    "model.safetensors.index.json",
+)
 
 
 def _run(command: list[str]) -> None:
@@ -120,9 +125,15 @@ def _mount_drive() -> None:
 
 
 def _load_gateway_module():
-    if AGENT_PATH.exists() and os.environ.get("HAPUS_FORCE_AGENT_DOWNLOAD") != "1":
-        print("Using the existing local gateway file:", AGENT_PATH)
-    else:
+    use_existing = AGENT_PATH.exists() and os.environ.get("HAPUS_FORCE_AGENT_DOWNLOAD") != "1"
+    if use_existing:
+        existing_source = AGENT_PATH.read_text(encoding="utf-8")
+        use_existing = all(marker in existing_source for marker in GATEWAY_SOURCE_MARKERS)
+        if use_existing:
+            print("Using the existing current gateway file:", AGENT_PATH)
+        else:
+            print("Existing gateway file is older than the launcher; downloading the current file")
+    if not use_existing:
         _download(AGENT_URL, AGENT_PATH)
         print("Downloaded gateway source from:", AGENT_URL)
     source = AGENT_PATH.read_text(encoding="utf-8")
