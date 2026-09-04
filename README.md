@@ -20,3 +20,9 @@ for Vercel or Render.
 
 The tunnel URL and token change whenever the Colab runtime restarts. This is a
 prototype demonstration bridge, not a production endpoint.
+
+## Architecture
+
+See [colab-gateway-architecture.md](colab-gateway-architecture.md) for a
+step-by-step explanation of the one-cell launcher, Drive model loading, local
+gateway, Cloudflare tunnel, request flow, output values, and troubleshooting.
